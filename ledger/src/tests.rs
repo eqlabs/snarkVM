@@ -29,8 +29,8 @@ use ledger_committee::{Committee, MIN_VALIDATOR_STAKE};
 use ledger_store::{helpers::memory::ConsensusMemory, ConsensusStore};
 use synthesizer::{program::Program, vm::VM, Stack};
 
-use indexmap::IndexMap;
 use console::types::U16;
+use indexmap::IndexMap;
 
 #[test]
 fn test_load() {
@@ -1709,7 +1709,7 @@ finalize is_id:
     assert.eq r0 network.id;
     ",
     ))
-        .unwrap();
+    .unwrap();
 
     // Deploy.
     let transaction = ledger.vm.deploy(&private_key, &program, None, 0, None, rng).unwrap();
@@ -1727,15 +1727,10 @@ finalize is_id:
 
     // Execute functions `is_block` and `is_id` to assert that the on-chain state is as expected.
     let inputs_block: [Value<CurrentNetwork>; 1] = [Value::from_str("2u32").unwrap()];
-    let tx_block = ledger
-        .vm
-        .execute(&private_key, (&program_id, "is_block"), inputs_block.iter(), None, 0, None, rng)
-        .unwrap();
+    let tx_block =
+        ledger.vm.execute(&private_key, (&program_id, "is_block"), inputs_block.iter(), None, 0, None, rng).unwrap();
     let inputs_id: [Value<CurrentNetwork>; 1] = [Value::from(Literal::U16(U16::new(CurrentNetwork::ID)))];
-    let tx_id = ledger
-        .vm
-        .execute(&private_key, (&program_id, "is_id"), inputs_id.iter(), None, 0, None, rng)
-        .unwrap();
+    let tx_id = ledger.vm.execute(&private_key, (&program_id, "is_id"), inputs_id.iter(), None, 0, None, rng).unwrap();
 
     // Construct the next block.
     let block_2 =
@@ -1745,18 +1740,15 @@ finalize is_id:
 
     // Execute the program.
     let inputs_block_2: [Value<CurrentNetwork>; 1] = [Value::from_str("3u32").unwrap()];
-    let tx_block_2= ledger
-        .vm
-        .execute(&private_key, (&program_id, "is_block"), inputs_block_2.iter(), None, 0, None, rng)
-        .unwrap();
-    let tx_id_2 = ledger
-        .vm
-        .execute(&private_key, (&program_id, "is_id"), inputs_id.iter(), None, 0, None, rng)
-        .unwrap();
+    let tx_block_2 =
+        ledger.vm.execute(&private_key, (&program_id, "is_block"), inputs_block_2.iter(), None, 0, None, rng).unwrap();
+    let tx_id_2 =
+        ledger.vm.execute(&private_key, (&program_id, "is_id"), inputs_id.iter(), None, 0, None, rng).unwrap();
 
     // Construct the next block.
-    let block_3 =
-        ledger.prepare_advance_to_next_beacon_block(&private_key, vec![], vec![], vec![tx_block_2, tx_id_2], rng).unwrap();
+    let block_3 = ledger
+        .prepare_advance_to_next_beacon_block(&private_key, vec![], vec![], vec![tx_block_2, tx_id_2], rng)
+        .unwrap();
     // Advance to the next block.
     ledger.advance_to_next_block(&block_3).unwrap();
 }
@@ -1991,5 +1983,4 @@ mod valid_solutions {
             candidate_solutions.iter().skip(CurrentNetwork::MAX_SOLUTIONS).map(|s| s.id()).collect::<HashSet<_>>();
         assert_eq!(block_aborted_solution_ids, expected_aborted_solutions, "Aborted solutions do not match");
     }
-
 }
