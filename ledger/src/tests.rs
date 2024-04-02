@@ -30,6 +30,7 @@ use ledger_store::{helpers::memory::ConsensusMemory, ConsensusStore};
 use synthesizer::{program::Program, vm::VM, Stack};
 
 use indexmap::IndexMap;
+use console::types::U16;
 
 #[test]
 fn test_load() {
@@ -1677,6 +1678,89 @@ fn test_deployment_exceeding_max_transaction_spend() {
     assert!(result.is_err());
 }
 
+#[test]
+fn test_metadata() {
+    let rng = &mut TestRng::default();
+
+    // Initialize the test environment.
+    let crate::test_helpers::TestEnv { ledger, private_key, .. } = crate::test_helpers::sample_test_env(rng);
+
+    // Deploy a test program to the ledger.
+    let program_id = ProgramID::<CurrentNetwork>::from_str("metadata.aleo").unwrap();
+    let program = Program::<CurrentNetwork>::from_str(&format!(
+        "
+program {program_id};
+function is_block:
+    input r0 as u32.public;
+    async is_block r0 into r1;
+    output r1 as {program_id}/is_block.future;
+
+finalize is_block:
+    input r0 as u32.public;
+    assert.eq r0 block.height;
+
+function is_id:
+    input r0 as u16.public;
+    async is_id r0 into r1;
+    output r1 as {program_id}/is_id.future;
+
+finalize is_id:
+    input r0 as u16.public;
+    assert.eq r0 network.id;
+    ",
+    ))
+        .unwrap();
+
+    // Deploy.
+    let transaction = ledger.vm.deploy(&private_key, &program, None, 0, None, rng).unwrap();
+    // Verify.
+    ledger.vm().check_transaction(&transaction, None, rng).unwrap();
+
+    // Construct the next block.
+    let block =
+        ledger.prepare_advance_to_next_beacon_block(&private_key, vec![], vec![], vec![transaction], rng).unwrap();
+    // Advance to the next block.
+    ledger.advance_to_next_block(&block).unwrap();
+    assert_eq!(ledger.latest_height(), 1);
+    assert_eq!(ledger.latest_hash(), block.hash());
+    assert_eq!(program, ledger.get_program(program_id).unwrap());
+
+    // Execute functions `is_block` and `is_id` to assert that the on-chain state is as expected.
+    let inputs_block: [Value<CurrentNetwork>; 1] = [Value::from_str("2u32").unwrap()];
+    let tx_block = ledger
+        .vm
+        .execute(&private_key, (&program_id, "is_block"), inputs_block.iter(), None, 0, None, rng)
+        .unwrap();
+    let inputs_id: [Value<CurrentNetwork>; 1] = [Value::from(Literal::U16(U16::new(CurrentNetwork::ID)))];
+    let tx_id = ledger
+        .vm
+        .execute(&private_key, (&program_id, "is_id"), inputs_id.iter(), None, 0, None, rng)
+        .unwrap();
+
+    // Construct the next block.
+    let block_2 =
+        ledger.prepare_advance_to_next_beacon_block(&private_key, vec![], vec![], vec![tx_id, tx_block], rng).unwrap();
+    // Advance to the next block.
+    ledger.advance_to_next_block(&block_2).unwrap();
+
+    // Execute the program.
+    let inputs_block_2: [Value<CurrentNetwork>; 1] = [Value::from_str("3u32").unwrap()];
+    let tx_block_2= ledger
+        .vm
+        .execute(&private_key, (&program_id, "is_block"), inputs_block_2.iter(), None, 0, None, rng)
+        .unwrap();
+    let tx_id_2 = ledger
+        .vm
+        .execute(&private_key, (&program_id, "is_id"), inputs_id.iter(), None, 0, None, rng)
+        .unwrap();
+
+    // Construct the next block.
+    let block_3 =
+        ledger.prepare_advance_to_next_beacon_block(&private_key, vec![], vec![], vec![tx_block_2, tx_id_2], rng).unwrap();
+    // Advance to the next block.
+    ledger.advance_to_next_block(&block_3).unwrap();
+}
+
 // These tests require the proof targets to be low enough to be able to generate **valid** solutions.
 // This requires the 'test' feature to be enabled for the `console` dependency.
 #[cfg(feature = "test")]
@@ -1907,4 +1991,5 @@ mod valid_solutions {
             candidate_solutions.iter().skip(CurrentNetwork::MAX_SOLUTIONS).map(|s| s.id()).collect::<HashSet<_>>();
         assert_eq!(block_aborted_solution_ids, expected_aborted_solutions, "Aborted solutions do not match");
     }
+
 }
