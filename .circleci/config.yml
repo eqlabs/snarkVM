@@ -46,7 +46,6 @@ commands:
         default: snarkvm-stable-cache
     steps:
       - run: set -e
-      - setup_remote_docker
       - run:
           name: Prepare environment and install dependencies
           command: |
@@ -164,7 +163,7 @@ jobs:
   algorithms:
     docker:
       - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
-    resource_class: large
+    resource_class: exbuhny4gnr1bjbjxfghd7/gcp-test
     steps:
       - run_serial:
           workspace_member: algorithms
@@ -522,7 +521,7 @@ jobs:
   ledger-authority:
     docker:
       - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
-    resource_class: large
+    resource_class: exbuhny4gnr1bjbjxfghd7/gcp-test
     steps:
       - run_serial:
           workspace_member: ledger/authority
