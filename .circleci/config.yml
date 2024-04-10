@@ -538,9 +538,8 @@ jobs:
           cache_key: snarkvm-ledger-block-cache
 
   ledger-committee:
-    docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
-    resource_class: large
+    machine: true
+    resource_class: exbuhny4gnr1bjbjxfghd7/gcp-test
     steps:
       - run_serial:
           workspace_member: ledger/committee
@@ -907,7 +906,7 @@ workflows:
 #      - ledger-with-valid-solutions
       - ledger-authority
 #      - ledger-block
-#      - ledger-committee
+      - ledger-committee
 #      - ledger-narwhal
 #      - ledger-narwhal-batch-certificate
 #      - ledger-narwhal-batch-header
