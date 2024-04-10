@@ -53,6 +53,7 @@ commands:
             DEBIAN_FRONTEND=noninteractive sudo apt-get dist-upgrade -y -o DPkg::Options::=--force-confold
             DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends clang llvm-dev llvm pkg-config xz-utils make libssl-dev libssl-dev
 
+            . "/home/circleci/.cargo/env"
             cargo install --locked cargo-llvm-cov
 
             mkdir -p "$CIRCLE_WORKING_DIRECTORY/.bin"
@@ -108,6 +109,7 @@ commands:
       - run:
           no_output_timeout: 60m
           command: |
+            . "/home/circleci/.cargo/env"
             cd << parameters.workspace_member >>
             RUST_MIN_STACK=67108864 CARGO_LLVM_COV_SETUP=yes cargo llvm-cov test --no-clean --release --codecov --ignore-run-fail --output-path codecov.json << parameters.flags >>
       - run:
@@ -161,8 +163,7 @@ jobs:
           command: RUST_MIN_STACK=67108864 cargo test
 
   algorithms:
-    docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+    machine: true
     resource_class: exbuhny4gnr1bjbjxfghd7/gcp-test
     steps:
       - run_serial:
@@ -519,8 +520,7 @@ jobs:
           cache_key: snarkvm-ledger-with-valid-solutions-cache
 
   ledger-authority:
-    docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+    machine: true
     resource_class: exbuhny4gnr1bjbjxfghd7/gcp-test
     steps:
       - run_serial:
