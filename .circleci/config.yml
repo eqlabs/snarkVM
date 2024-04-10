@@ -55,7 +55,8 @@ commands:
 
             . "/home/circleci/.cargo/env"
             cargo install --locked cargo-llvm-cov
-
+            cargo install --locked cargo-nextest
+            
             mkdir -p "$CIRCLE_WORKING_DIRECTORY/.bin"
             export PATH="$PATH:$CIRCLE_WORKING_DIRECTORY/.bin"
 
@@ -111,7 +112,7 @@ commands:
           command: |
             . "/home/circleci/.cargo/env"
             cd << parameters.workspace_member >>
-            RUST_MIN_STACK=67108864 CARGO_LLVM_COV_SETUP=yes cargo llvm-cov test --no-clean --release --codecov --ignore-run-fail --output-path codecov.json << parameters.flags >>
+            RUST_MIN_STACK=67108864 CARGO_LLVM_COV_SETUP=yes cargo llvm-cov nextest --no-clean --release --codecov --ignore-run-fail --output-path codecov.json << parameters.flags >>
       - run:
           name: Upload results to Codecov
           command: |
