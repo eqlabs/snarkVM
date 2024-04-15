@@ -46,34 +46,27 @@ commands:
         default: snarkvm-stable-cache
     steps:
       - run: set -e
+      - setup_remote_docker
       - run:
           name: Prepare environment and install dependencies
           command: |
-            DEBIAN_FRONTEND=noninteractive sudo apt-get update
-            DEBIAN_FRONTEND=noninteractive sudo apt-get dist-upgrade -y -o DPkg::Options::=--force-confold
-            DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends clang llvm-dev llvm pkg-config xz-utils make libssl-dev libssl-dev
-
-            . "/home/circleci/.cargo/env"
-            cargo install --locked cargo-llvm-cov
-            cargo install --locked cargo-nextest
-            
-            mkdir -p "$CIRCLE_WORKING_DIRECTORY/.bin"
-            export PATH="$PATH:$CIRCLE_WORKING_DIRECTORY/.bin"
-
-            curl -Os https://cli.codecov.io/latest/linux/codecov
-            sudo chmod +x codecov
-            mv codecov $CIRCLE_WORKING_DIRECTORY/.bin/codecov
-
             export SCCACHE_CACHE_SIZE=200M
             export WORK_DIR="$CIRCLE_WORKING_DIRECTORY/.cache/sccache"
             export SCCACHE_DIR="$CIRCLE_WORKING_DIRECTORY/.cache/sccache"
+            mkdir -p "$CIRCLE_WORKING_DIRECTORY/.bin"
             wget https://github.com/mozilla/sccache/releases/download/v0.3.0/sccache-v0.3.0-x86_64-unknown-linux-musl.tar.gz
             tar -C "$CIRCLE_WORKING_DIRECTORY/.bin" -xvf sccache-v0.3.0-x86_64-unknown-linux-musl.tar.gz
             mv $CIRCLE_WORKING_DIRECTORY/.bin/sccache-v0.3.0-x86_64-unknown-linux-musl/sccache $CIRCLE_WORKING_DIRECTORY/.bin/sccache
+            export PATH="$PATH:$CIRCLE_WORKING_DIRECTORY/.bin"
             export RUSTC_WRAPPER="sccache"
-
             rm -rf "$CIRCLE_WORKING_DIRECTORY/.cargo/registry"
-
+            DEBIAN_FRONTEND=noninteractive sudo apt-get update
+            DEBIAN_FRONTEND=noninteractive sudo apt-get dist-upgrade -y -o DPkg::Options::=--force-confold
+            DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends clang llvm-dev llvm pkg-config xz-utils make libssl-dev libssl-dev
+            
+            curl -Os https://cli.codecov.io/latest/linux/codecov
+            sudo chmod +x codecov
+            mv codecov $CIRCLE_WORKING_DIRECTORY/.bin/codecov
       - restore_cache:
           keys:
             - << parameters.cache_key >>
@@ -109,14 +102,7 @@ commands:
           cache_key: << parameters.cache_key >>
       - run:
           no_output_timeout: 60m
-          command: |
-            . "/home/circleci/.cargo/env"
-            cd << parameters.workspace_member >>
-            RUST_MIN_STACK=67108864 CARGO_LLVM_COV_SETUP=yes cargo llvm-cov nextest --no-clean --release --codecov --ignore-run-fail --output-path codecov.json << parameters.flags >>
-      - run:
-          name: Upload results to Codecov
-          command: |
-            $CIRCLE_WORKING_DIRECTORY/.bin/codecov upload-process --token $CODECOV_TOKEN --commit-sha $CIRCLE_SHA1 --slug eqlabs/snarkVM --git-service github
+          command: cd << parameters.workspace_member >> && RUST_MIN_STACK=67108864 cargo test << parameters.flags >>
       - clear_environment:
           cache_key: << parameters.cache_key >>
 
@@ -152,10 +138,35 @@ commands:
     steps:
       - run: rustup toolchain install nightly-x86_64-unknown-linux-gnu
 
+  post_coverage:
+    description: "Find all coverage files and submit to codecov"
+    parameters:
+      cache_key:
+        type: string
+    steps:
+      - checkout
+      - setup_environment:
+          cache_key: << parameters.cache_key >>
+      - run:
+          no_output_timeout: 60m
+          command: |
+            find $CIRCLE_WORKING_DIRECTORY -type f -name "lcov*.tar.gz" | while read archive; do tar -xzf "$archive"; done
+            find $CIRCLE_WORKING_DIRECTORY -type f -name "lcov*.info" -exec $CIRCLE_WORKING_DIRECTORY/.bin/codecov upload-process --token $CODECOV_TOKEN --commit-sha $CIRCLE_SHA1 --slug eqlabs/snarkVM --git-service github --disable-search --file {} \;
+      - clear_environment:
+          cache_key: << parameters.cache_key >>
+
 jobs:
+  coverage-report:
+    docker:
+      - image: cimg/rust:1.76.0
+    resource_class: large
+    steps:
+      - post_coverage:
+          cache_key: snarkvm-coverage-cache
+
   snarkvm:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - checkout
@@ -164,8 +175,9 @@ jobs:
           command: RUST_MIN_STACK=67108864 cargo test
 
   algorithms:
-    machine: true
-    resource_class: exbuhny4gnr1bjbjxfghd7/gcp-test
+    docker:
+      - image: cimg/rust:1.76.0
+    resource_class: large
     steps:
       - run_serial:
           workspace_member: algorithms
@@ -173,7 +185,7 @@ jobs:
 
   algorithms-profiler:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial: # This runs a single test with profiler enabled
@@ -183,7 +195,7 @@ jobs:
 
   circuit:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -192,7 +204,7 @@ jobs:
 
   circuit-account:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -202,7 +214,7 @@ jobs:
   # This checks that no `console` structs are used in core circuit logic.
   circuit-account-noconsole:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -212,7 +224,7 @@ jobs:
 
   circuit-algorithms:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -221,7 +233,7 @@ jobs:
 
   circuit-collections:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -231,7 +243,7 @@ jobs:
   # This checks that no `console` structs are used in core circuit logic.
   circuit-collections-noconsole:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -241,7 +253,7 @@ jobs:
 
   circuit-environment:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -250,7 +262,7 @@ jobs:
 
   circuit-network:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -259,7 +271,7 @@ jobs:
 
   circuit-program:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -268,7 +280,7 @@ jobs:
 
   circuit-types:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -277,7 +289,7 @@ jobs:
 
   circuit-types-address:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -286,7 +298,7 @@ jobs:
 
   circuit-types-boolean:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -295,7 +307,7 @@ jobs:
 
   circuit-types-field:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -304,7 +316,7 @@ jobs:
 
   circuit-types-group:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -313,7 +325,7 @@ jobs:
 
   circuit-types-integers:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -323,7 +335,7 @@ jobs:
 
   circuit-types-scalar:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -332,7 +344,7 @@ jobs:
 
   circuit-types-string:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -340,7 +352,7 @@ jobs:
           cache_key: snarkvm-circuit-types-string-cache
   console:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -349,7 +361,7 @@ jobs:
 
   console-account:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -358,7 +370,7 @@ jobs:
 
   console-algorithms:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -367,7 +379,7 @@ jobs:
 
   console-collections:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -376,7 +388,7 @@ jobs:
 
   console-network:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -385,7 +397,7 @@ jobs:
 
   console-network-environment:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -394,7 +406,7 @@ jobs:
 
   console-program:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -403,7 +415,7 @@ jobs:
 
   console-types:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -412,7 +424,7 @@ jobs:
 
   console-types-address:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -421,7 +433,7 @@ jobs:
 
   console-types-boolean:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -430,7 +442,7 @@ jobs:
 
   console-types-field:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -439,7 +451,7 @@ jobs:
 
   console-types-group:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -448,7 +460,7 @@ jobs:
 
   console-types-integers:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -457,7 +469,7 @@ jobs:
 
   console-types-scalar:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -466,7 +478,7 @@ jobs:
 
   console-types-string:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -475,7 +487,7 @@ jobs:
 
   curves:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -484,7 +496,7 @@ jobs:
 
   fields:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -493,7 +505,7 @@ jobs:
 
   ledger:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -502,7 +514,7 @@ jobs:
 
   ledger-with-rocksdb:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -512,7 +524,7 @@ jobs:
 
   ledger-with-valid-solutions:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -521,8 +533,9 @@ jobs:
           cache_key: snarkvm-ledger-with-valid-solutions-cache
 
   ledger-authority:
-    machine: true
-    resource_class: exbuhny4gnr1bjbjxfghd7/gcp-test
+    docker:
+      - image: cimg/rust:1.76.0
+    resource_class: large
     steps:
       - run_serial:
           workspace_member: ledger/authority
@@ -530,7 +543,7 @@ jobs:
 
   ledger-block:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -538,8 +551,9 @@ jobs:
           cache_key: snarkvm-ledger-block-cache
 
   ledger-committee:
-    machine: true
-    resource_class: exbuhny4gnr1bjbjxfghd7/gcp-test
+    docker:
+      - image: cimg/rust:1.76.0
+    resource_class: large
     steps:
       - run_serial:
           workspace_member: ledger/committee
@@ -547,7 +561,7 @@ jobs:
 
   ledger-narwhal:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -556,7 +570,7 @@ jobs:
 
   ledger-narwhal-batch-certificate:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -565,7 +579,7 @@ jobs:
 
   ledger-narwhal-batch-header:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -574,7 +588,7 @@ jobs:
 
   ledger-narwhal-data:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -583,7 +597,7 @@ jobs:
 
   ledger-narwhal-subdag:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -592,7 +606,7 @@ jobs:
 
   ledger-narwhal-transmission:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -601,7 +615,7 @@ jobs:
 
   ledger-narwhal-transmission-id:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -610,7 +624,7 @@ jobs:
 
   ledger-puzzle:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -619,7 +633,7 @@ jobs:
 
   ledger-puzzle-epoch:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -628,7 +642,7 @@ jobs:
 
   ledger-query:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -637,7 +651,7 @@ jobs:
 
   ledger-store:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -647,7 +661,7 @@ jobs:
 
   ledger-test-helpers:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -656,7 +670,7 @@ jobs:
 
   parameters:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -665,7 +679,7 @@ jobs:
 
   synthesizer:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -675,7 +689,7 @@ jobs:
 
   synthesizer-integration:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -685,7 +699,7 @@ jobs:
 
   synthesizer-process:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -694,7 +708,7 @@ jobs:
 
   synthesizer-process-with-rocksdb:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -704,7 +718,7 @@ jobs:
 
   synthesizer-program:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -714,7 +728,7 @@ jobs:
 
   synthesizer-program-integration:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -724,7 +738,7 @@ jobs:
 
   synthesizer-program-integration-keccak:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -734,7 +748,7 @@ jobs:
 
   synthesizer-program-integration-psd:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -744,7 +758,7 @@ jobs:
 
   synthesizer-program-integration-sha:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -754,7 +768,7 @@ jobs:
 
   synthesizer-snark:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -763,7 +777,7 @@ jobs:
 
   utilities:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -772,7 +786,7 @@ jobs:
 
   utilities-derives:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - run_serial:
@@ -781,7 +795,7 @@ jobs:
 
   wasm:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - checkout
@@ -799,7 +813,7 @@ jobs:
 
   check-fmt:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - checkout
@@ -815,7 +829,7 @@ jobs:
 
   check-clippy:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - checkout
@@ -832,7 +846,7 @@ jobs:
 
   check-all-targets:
     docker:
-      - image: cimg/rust:1.76.0 # Attention - Change the MSRV in Cargo.toml and rust-toolchain as well
+      - image: cimg/rust:1.76.0
     resource_class: large
     steps:
       - checkout
@@ -848,7 +862,7 @@ jobs:
   verify-windows:
     executor:
       name: windows/default
-      size: 2xlarge
+      size: large
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     parameters:
@@ -863,8 +877,9 @@ workflows:
 
   main-workflow:
     jobs:
+      - coverage-report
 #      - snarkvm
-      - algorithms
+#      - algorithms
 #      - algorithms-profiler
 #      - circuit
 #      - circuit-account
@@ -875,7 +890,7 @@ workflows:
 #      - circuit-environment
 #      - circuit-network
 #      - circuit-program
-#      - circuit-types
+#     - circuit-types
 #      - circuit-types-address
 #      - circuit-types-boolean
 #      - circuit-types-field
@@ -901,12 +916,12 @@ workflows:
 #      - curves
 #      - fields
 #      - ledger
-## TODO (howardwu) - Implement `open_testing` on all storage, update to `CurrentConsensusStore::open_testing`, then re-enable.
-##      - ledger-with-rocksdb
+# TODO (howardwu) - Implement `open_testing` on all storage, update to `CurrentConsensusStore::open_testing`, then re-enable.
+#      - ledger-with-rocksdb
 #      - ledger-with-valid-solutions
-      - ledger-authority
+#      - ledger-authority
 #      - ledger-block
-      - ledger-committee
+#      - ledger-committee
 #      - ledger-narwhal
 #      - ledger-narwhal-batch-certificate
 #      - ledger-narwhal-batch-header
